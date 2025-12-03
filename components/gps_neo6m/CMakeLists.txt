@@ -1,0 +1,6 @@
+idf_component_register(
+    SRCS "gps_neo6m.c"
+    INCLUDE_DIRS "include"
+    REQUIRES driver esp_timer
+)
+

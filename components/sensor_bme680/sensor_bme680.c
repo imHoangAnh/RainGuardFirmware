@@ -10,7 +10,7 @@
 #include "freertos/task.h"
 
 static const char *TAG = "BME680";
-static uint8_t bme680_addr = 0x77;
+static uint8_t bme680_addr = BME680_I2C_ADDR_PRIMARY;
 static bool initialized = false;
 
 // BME680 Registers
@@ -23,24 +23,52 @@ static bool initialized = false;
 #define BME680_REG_PRESS_MSB 0x1F
 #define BME680_REG_GAS_R_MSB 0x2A
 
-#define BME680_CHIP_ID 0x61
+#define BME680_CHIP_ID_VAL 0x61
 
 esp_err_t sensor_bme680_init(uint8_t i2c_addr)
 {
     bme680_addr = i2c_addr;
 
-    // Read and verify chip ID
+    ESP_LOGI(TAG, "Attempting to initialize BME680 at address 0x%02X", i2c_addr);
+
+    // Add delay after I2C scanner
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    // Try reading chip ID multiple times
     uint8_t chip_id = 0;
-    esp_err_t err = system_i2c_read(bme680_addr, BME680_REG_CHIP_ID, &chip_id, 1);
+    esp_err_t err = ESP_FAIL;
+
+    for (int attempt = 0; attempt < 3; attempt++)
+    {
+        err = system_i2c_read(bme680_addr, BME680_REG_CHIP_ID, &chip_id, 1);
+        ESP_LOGI(TAG, "Attempt %d: Read chip ID = 0x%02X, status = %s",
+                 attempt + 1, chip_id, esp_err_to_name(err));
+
+        if (err == ESP_OK)
+        {
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to read chip ID: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "Failed to read chip ID after 3 attempts: %s", esp_err_to_name(err));
         return err;
     }
 
-    if (chip_id != BME680_CHIP_ID)
+    if (chip_id != BME680_CHIP_ID_VAL)
     {
-        ESP_LOGW(TAG, "Unexpected chip ID: 0x%02X (expected 0x%02X)", chip_id, BME680_CHIP_ID);
+        ESP_LOGW(TAG, "Unexpected chip ID: 0x%02X (expected 0x61)", chip_id);
+        // Check if it's BME280 (0x60) or BMP280 (0x58)
+        if (chip_id == 0x60)
+        {
+            ESP_LOGW(TAG, "This looks like a BME280 sensor, not BME680!");
+        }
+        else if (chip_id == 0x58)
+        {
+            ESP_LOGW(TAG, "This looks like a BMP280 sensor, not BME680!");
+        }
         // Continue anyway for testing
     }
     else
@@ -53,7 +81,7 @@ esp_err_t sensor_bme680_init(uint8_t i2c_addr)
     err = system_i2c_write(bme680_addr, BME680_REG_CTRL_HUM, &ctrl_hum, 1);
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to configure humidity");
+        ESP_LOGE(TAG, "Failed to configure humidity: %s", esp_err_to_name(err));
         return err;
     }
 
@@ -62,7 +90,7 @@ esp_err_t sensor_bme680_init(uint8_t i2c_addr)
     err = system_i2c_write(bme680_addr, BME680_REG_CTRL_MEAS, &ctrl_meas, 1);
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to configure measurement");
+        ESP_LOGE(TAG, "Failed to configure measurement: %s", esp_err_to_name(err));
         return err;
     }
 
@@ -148,6 +176,7 @@ use_placeholder:
     data->gas_resistance = 50000.0f;
     return ESP_OK; // Return OK so MQTT flow continues
 }
+
 esp_err_t sensor_bme680_deinit(void)
 {
     initialized = false;

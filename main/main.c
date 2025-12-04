@@ -31,7 +31,7 @@ static const char *TAG = "MAIN";
 // Configuration
 // ============================================================================
 #define DEVICE_ID "ESP32_Train_01"
-#define MQTT_BROKER_URI "mqtt://192.168.0.102:1883" // Change to your PC IP
+#define MQTT_BROKER_URI "mqtt://192.168.0.103:1883" // Change to your PC IP
 #define MQTT_TOPIC "train/data/" DEVICE_ID
 #define SENSOR_READ_INTERVAL_MS 5000 // 5 seconds
 
@@ -47,7 +47,7 @@ static void sensor_mqtt_task(void *pvParameters)
     {
         // Read BME680 (Temperature, Humidity, Gas)
         bme680_data_t bme_data = {0};
-        bme680_read_forced(&bme_data);
+        sensor_bme680_read(&bme_data);
 
         // Read MPU6050 (Accelerometer, Gyroscope)
         mpu6050_data_t mpu_data = {0};
@@ -165,7 +165,7 @@ void app_main(void)
     ESP_ERROR_CHECK(app_network_init());
 
     ESP_LOGI(TAG, "Waiting for WiFi connection...");
-    if (!app_network_wait_connected(300))
+    if (!app_network_wait_connected(30000))
     {
         ESP_LOGE(TAG, "Failed to connect to WiFi, cannot continue");
         return;
@@ -195,18 +195,58 @@ void app_main(void)
     ESP_LOGI(TAG, "Initializing I2C bus...");
     ESP_ERROR_CHECK(system_i2c_init(I2C_SDA_PIN, I2C_SCL_PIN));
     ESP_LOGI(TAG, "✓ I2C bus initialized (SDA:%d, SCL:%d)", I2C_SDA_PIN, I2C_SCL_PIN);
+    // ============= ADD I2C SCANNER HERE =============
+    ESP_LOGI(TAG, "");
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "  I2C BUS SCANNER");
+    ESP_LOGI(TAG, "========================================");
+
+    int device_count = 0;
+    for (uint8_t addr = 1; addr < 127; addr++)
+    {
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+        i2c_master_stop(cmd);
+
+        esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(50));
+        i2c_cmd_link_delete(cmd);
+
+        if (ret == ESP_OK)
+        {
+            ESP_LOGI(TAG, "✓ Found I2C device at address: 0x%02X", addr);
+            device_count++;
+        }
+    }
+
+    if (device_count == 0)
+    {
+        ESP_LOGW(TAG, "⚠ No I2C devices found! Check your wiring:");
+        ESP_LOGW(TAG, "   - SDA (GPIO %d) connected?", I2C_SDA_PIN);
+        ESP_LOGW(TAG, "   - SCL (GPIO %d) connected?", I2C_SCL_PIN);
+        ESP_LOGW(TAG, "   - Sensor powered (3.3V)?");
+        ESP_LOGW(TAG, "   - Common GND connected?");
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Total devices found: %d", device_count);
+    }
+    ESP_LOGI(TAG, "========================================");
+    // ============= END I2C SCANNER =============
 
     // Step 5: Initialize Sensors
     ESP_LOGI(TAG, "Initializing sensors...");
 
     // BME680 (Auto-detects address)
-    esp_err_t err = sensor_bme680_init(BME680_I2C_ADDR_DEFAULT);
+    esp_err_t err = sensor_bme680_init(BME680_I2C_ADDR_SECONDARY);
+
     if (err == ESP_OK)
     {
         ESP_LOGI(TAG, "✓ BME680 initialized");
     }
     else
     {
+
         ESP_LOGW(TAG, "⚠ BME680 init failed, will use placeholder data");
     }
 
@@ -253,7 +293,7 @@ void app_main(void)
     uint32_t loop_count = 0;
     while (1)
     {
-        vTaskDelay(pdMS_TO_TICKS(60)); // Every 60 seconds
+        vTaskDelay(pdMS_TO_TICKS(60000)); // Every 60 seconds
         loop_count++;
 
         ESP_LOGI(TAG, "System Status [Uptime: %lu min]", loop_count);

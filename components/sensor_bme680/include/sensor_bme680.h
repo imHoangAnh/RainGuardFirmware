@@ -1,6 +1,6 @@
 /**
  * @file sensor_bme680.h
- * @brief Robust BME680 Environmental Sensor Driver with Auto-Detection
+ * @brief BME680 Environmental Sensor Driver
  */
 
 #ifndef SENSOR_BME680_H
@@ -10,39 +10,44 @@
 #include <stdint.h>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
-/**
- * @brief BME680 sensor data structure
- */
-typedef struct {
-    float temperature;    // Temperature in Celsius
-    float pressure;       // Pressure in hPa
-    float humidity;       // Humidity in %
-    float gas_resistance; // Gas resistance in Ohms
-} bme680_data_t;
+// BME680 I2C Address
+#define BME680_I2C_ADDR_PRIMARY 0x76
+#define BME680_I2C_ADDR_SECONDARY 0x77
 
-/**
- * @brief Initialize BME680 sensor with auto-address detection
- * 
- * Automatically detects sensor at 0x77 or 0x76, reads calibration data,
- * configures sensor settings and gas heater.
- * 
- * @return ESP_OK on success, ESP_FAIL if sensor not found
- */
-esp_err_t sensor_bme680_init(uint8_t i2c_addr)
+    /**
+     * @brief BME680 sensor data structure
+     */
+    typedef struct
+    {
+        float temperature;    // Temperature in Celsius
+        float pressure;       // Pressure in hPa
+        float humidity;       // Humidity in %
+        float gas_resistance; // Gas resistance in Ohms
+    } bme680_data_t;
 
-/**
- * @brief Read sensor data in forced mode
- * 
- * Triggers a forced mode measurement, waits for completion,
- * reads raw ADC values and applies compensation formulas.
- * 
- * @param data Pointer to data structure to fill
- * @return ESP_OK on success
- */
-esp_err_t bme680_read_forced(bme680_data_t *data);
+    /**
+     * @brief Initialize BME680 sensor
+     * @param i2c_addr I2C address of the sensor
+     * @return ESP_OK on success
+     */
+    esp_err_t sensor_bme680_init(uint8_t i2c_addr);
+
+    /**
+     * @brief Read sensor data
+     * @param data Pointer to data structure
+     * @return ESP_OK on success
+     */
+    esp_err_t sensor_bme680_read(bme680_data_t *data);
+
+    /**
+     * @brief Deinitialize BME680 sensor
+     * @return ESP_OK on success
+     */
+    esp_err_t sensor_bme680_deinit(void);
 
 #ifdef __cplusplus
 }

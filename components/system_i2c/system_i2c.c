@@ -1,57 +1,52 @@
 /**
  * @file system_i2c.c
- * @brief I2C Driver Wrapper Implementation
+ * @brief I2C Driver Wrapper Implementation (New I2C Master API)
  */
 
 #include "system_i2c.h"
 #include "esp_log.h"
 #include <string.h>
+#include <stdlib.h>
 
 static const char *TAG = "SYSTEM_I2C";
-static bool i2c_initialized = false;
+static i2c_master_bus_handle_t bus_handle = NULL;
 
 esp_err_t system_i2c_init(int sda_pin, int scl_pin)
 {
-    if (i2c_initialized) {
+    if (bus_handle != NULL) {
         ESP_LOGW(TAG, "I2C already initialized");
         return ESP_OK;
     }
 
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
+    // Configure I2C master bus
+    i2c_master_bus_config_t bus_config = {
+        .i2c_port = I2C_NUM_0,
         .sda_io_num = sda_pin,
         .scl_io_num = scl_pin,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = I2C_MASTER_FREQ_HZ,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
     };
 
-    esp_err_t err = i2c_param_config(I2C_MASTER_NUM, &conf);
+    esp_err_t err = i2c_new_master_bus(&bus_config, &bus_handle);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "I2C param config failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "I2C master bus init failed: %s", esp_err_to_name(err));
         return err;
     }
 
-    err = i2c_driver_install(I2C_MASTER_NUM, conf.mode, I2C_MASTER_RX_BUF_LEN, I2C_MASTER_TX_BUF_LEN, 0);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "I2C driver install failed: %s", esp_err_to_name(err));
-        return err;
-    }
-
-    i2c_initialized = true;
     ESP_LOGI(TAG, "I2C initialized (SDA: %d, SCL: %d)", sda_pin, scl_pin);
     return ESP_OK;
 }
 
 esp_err_t system_i2c_deinit(void)
 {
-    if (!i2c_initialized) {
+    if (bus_handle == NULL) {
         return ESP_OK;
     }
 
-    esp_err_t err = i2c_driver_delete(I2C_MASTER_NUM);
+    esp_err_t err = i2c_del_master_bus(bus_handle);
     if (err == ESP_OK) {
-        i2c_initialized = false;
+        bus_handle = NULL;
         ESP_LOGI(TAG, "I2C deinitialized");
     }
     return err;
@@ -59,45 +54,67 @@ esp_err_t system_i2c_deinit(void)
 
 esp_err_t system_i2c_write(uint8_t device_addr, uint8_t reg_addr, const uint8_t *data, size_t len)
 {
-    if (!i2c_initialized) {
+    if (bus_handle == NULL) {
         ESP_LOGE(TAG, "I2C not initialized");
         return ESP_ERR_INVALID_STATE;
     }
 
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (device_addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg_addr, true);
-    i2c_master_write(cmd, data, len, true);
-    i2c_master_stop(cmd);
+    // Create a temporary device handle
+    i2c_device_config_t dev_config = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = device_addr,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+    };
 
-    esp_err_t err = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(I2C_MASTER_TIMEOUT_MS));
-    i2c_cmd_link_delete(cmd);
+    i2c_master_dev_handle_t dev_handle;
+    esp_err_t err = i2c_master_bus_add_device(bus_handle, &dev_config, &dev_handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    // Prepare write buffer: [reg_addr, data...]
+    uint8_t *write_buf = malloc(len + 1);
+    if (write_buf == NULL) {
+        i2c_master_bus_rm_device(dev_handle);
+        return ESP_ERR_NO_MEM;
+    }
+
+    write_buf[0] = reg_addr;
+    memcpy(write_buf + 1, data, len);
+
+    // Transmit data
+    err = i2c_master_transmit(dev_handle, write_buf, len + 1, I2C_MASTER_TIMEOUT_MS);
+
+    free(write_buf);
+    i2c_master_bus_rm_device(dev_handle);
 
     return err;
 }
 
 esp_err_t system_i2c_read(uint8_t device_addr, uint8_t reg_addr, uint8_t *data, size_t len)
 {
-    if (!i2c_initialized) {
+    if (bus_handle == NULL) {
         ESP_LOGE(TAG, "I2C not initialized");
         return ESP_ERR_INVALID_STATE;
     }
 
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (device_addr << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, reg_addr, true);
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (device_addr << 1) | I2C_MASTER_READ, true);
-    if (len > 1) {
-        i2c_master_read(cmd, data, len - 1, I2C_MASTER_ACK);
-    }
-    i2c_master_read_byte(cmd, data + len - 1, I2C_MASTER_NACK);
-    i2c_master_stop(cmd);
+    // Create a temporary device handle
+    i2c_device_config_t dev_config = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = device_addr,
+        .scl_speed_hz = I2C_MASTER_FREQ_HZ,
+    };
 
-    esp_err_t err = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(I2C_MASTER_TIMEOUT_MS));
-    i2c_cmd_link_delete(cmd);
+    i2c_master_dev_handle_t dev_handle;
+    esp_err_t err = i2c_master_bus_add_device(bus_handle, &dev_config, &dev_handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    // Write register address, then read data
+    err = i2c_master_transmit_receive(dev_handle, &reg_addr, 1, data, len, I2C_MASTER_TIMEOUT_MS);
+
+    i2c_master_bus_rm_device(dev_handle);
 
     return err;
 }

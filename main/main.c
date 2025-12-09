@@ -69,8 +69,8 @@ static void sensor_mqtt_task(void *pvParameters)
         snprintf(json_buffer, sizeof(json_buffer),
                  "{"
                  "\"deviceId\":\"%s\","
-                 "\"temp\":%.2f,"
-                 "\"hum\":%.2f,"
+                 "\"temperature\":%.2f,"
+                 "\"humidity\":%.2f,"
                  "\"pressure\":%.2f,"
                  "\"gas\":%.0f,"
                  "\"lat\":%.6f,"
@@ -95,7 +95,7 @@ static void sensor_mqtt_task(void *pvParameters)
                  mpu_data.accel_z);
 
         // Log to console
-        ESP_LOGI(TAG, "📊 Sensor Data: %s", json_buffer);
+        ESP_LOGI(TAG, "Sensor Data: %s", json_buffer);
 
         // Publish to MQTT
         if (app_network_mqtt_is_connected())
@@ -103,7 +103,7 @@ static void sensor_mqtt_task(void *pvParameters)
             esp_err_t err = app_network_mqtt_publish(MQTT_TOPIC, json_buffer, 0);
             if (err == ESP_OK)
             {
-                ESP_LOGI(TAG, "✓ Published to MQTT topic: %s", MQTT_TOPIC);
+                ESP_LOGI(TAG, "Published to MQTT topic: %s", MQTT_TOPIC);
             }
         }
         else
@@ -133,11 +133,11 @@ static esp_err_t init_nvs(void)
 
     if (ret == ESP_OK)
     {
-        ESP_LOGI(TAG, "✓ NVS initialized successfully");
+        ESP_LOGI(TAG, "NVS initialized successfully");
     }
     else
     {
-        ESP_LOGE(TAG, "✗ NVS initialization failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "NVS initialization failed: %s", esp_err_to_name(ret));
     }
 
     return ret;
@@ -173,7 +173,7 @@ void app_main(void)
 
     char ip_str[16];
     app_network_get_ip(ip_str);
-    ESP_LOGI(TAG, "✓ WiFi Connected, IP: %s", ip_str);
+    ESP_LOGI(TAG, "WiFi Connected, IP: %s", ip_str);
 
     // Step 3: Initialize MQTT
     ESP_LOGI(TAG, "Initializing MQTT client...");
@@ -185,55 +185,50 @@ void app_main(void)
     {
         if (app_network_mqtt_is_connected())
         {
-            ESP_LOGI(TAG, "✓ MQTT Connected to broker");
+            ESP_LOGI(TAG, "MQTT Connected to broker");
             break;
         }
         vTaskDelay(pdMS_TO_TICKS(500));
     }
+    /*
+        // Step 4: Initialize I2C bus
+        ESP_LOGI(TAG, "Initializing I2C bus...");
+        ESP_ERROR_CHECK(system_i2c_init(I2C_SDA_PIN, I2C_SCL_PIN));
+        ESP_LOGI(TAG, "✓ I2C bus initialized (SDA:%d, SCL:%d)", I2C_SDA_PIN, I2C_SCL_PIN);
+        // ============= I2C SCANNER (New API) =============
+        ESP_LOGI(TAG, "");
+        ESP_LOGI(TAG, "========================================");
+        ESP_LOGI(TAG, "  I2C BUS SCANNER");
+        ESP_LOGI(TAG, "========================================");
 
-    // Step 4: Initialize I2C bus
-    ESP_LOGI(TAG, "Initializing I2C bus...");
-    ESP_ERROR_CHECK(system_i2c_init(I2C_SDA_PIN, I2C_SCL_PIN));
-    ESP_LOGI(TAG, "✓ I2C bus initialized (SDA:%d, SCL:%d)", I2C_SDA_PIN, I2C_SCL_PIN);
-    // ============= ADD I2C SCANNER HERE =============
-    ESP_LOGI(TAG, "");
-    ESP_LOGI(TAG, "========================================");
-    ESP_LOGI(TAG, "  I2C BUS SCANNER");
-    ESP_LOGI(TAG, "========================================");
-
-    int device_count = 0;
-    for (uint8_t addr = 1; addr < 127; addr++)
-    {
-        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
-        i2c_master_stop(cmd);
-
-        esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, pdMS_TO_TICKS(50));
-        i2c_cmd_link_delete(cmd);
-
-        if (ret == ESP_OK)
+        int device_count = 0;
+        for (uint8_t addr = 1; addr < 127; addr++)
         {
-            ESP_LOGI(TAG, "✓ Found I2C device at address: 0x%02X", addr);
-            device_count++;
+            uint8_t dummy_data = 0;
+            esp_err_t ret = system_i2c_read(addr, 0x00, &dummy_data, 1);
+
+            if (ret == ESP_OK)
+            {
+                ESP_LOGI(TAG, "✓ Found I2C device at address: 0x%02X", addr);
+                device_count++;
+            }
         }
-    }
 
-    if (device_count == 0)
-    {
-        ESP_LOGW(TAG, "⚠ No I2C devices found! Check your wiring:");
-        ESP_LOGW(TAG, "   - SDA (GPIO %d) connected?", I2C_SDA_PIN);
-        ESP_LOGW(TAG, "   - SCL (GPIO %d) connected?", I2C_SCL_PIN);
-        ESP_LOGW(TAG, "   - Sensor powered (3.3V)?");
-        ESP_LOGW(TAG, "   - Common GND connected?");
-    }
-    else
-    {
-        ESP_LOGI(TAG, "Total devices found: %d", device_count);
-    }
-    ESP_LOGI(TAG, "========================================");
-    // ============= END I2C SCANNER =============
-
+        if (device_count == 0)
+        {
+            ESP_LOGW(TAG, "⚠ No I2C devices found! Check your wiring:");
+            ESP_LOGW(TAG, "   - SDA (GPIO %d) connected?", I2C_SDA_PIN);
+            ESP_LOGW(TAG, "   - SCL (GPIO %d) connected?", I2C_SCL_PIN);
+            ESP_LOGW(TAG, "   - Sensor powered (3.3V)?");
+            ESP_LOGW(TAG, "   - Common GND connected?");
+        }
+        else
+        {
+            ESP_LOGI(TAG, "Total devices found: %d", device_count);
+        }
+        ESP_LOGI(TAG, "========================================");
+        // ============= END I2C SCANNER =============
+    */
     // Step 5: Initialize Sensors
     ESP_LOGI(TAG, "Initializing sensors...");
 
@@ -242,34 +237,34 @@ void app_main(void)
 
     if (err == ESP_OK)
     {
-        ESP_LOGI(TAG, "✓ BME680 initialized");
+        ESP_LOGI(TAG, "BME680 initialized");
     }
     else
     {
 
-        ESP_LOGW(TAG, "⚠ BME680 init failed, will use placeholder data");
+        ESP_LOGW(TAG, "BME680 init failed, will use placeholder data");
     }
 
     // MPU6050
     err = sensor_mpu6050_init(MPU6050_I2C_ADDR_DEFAULT);
     if (err == ESP_OK)
     {
-        ESP_LOGI(TAG, "✓ MPU6050 initialized");
+        ESP_LOGI(TAG, "MPU6050 initialized");
     }
     else
     {
-        ESP_LOGW(TAG, "⚠ MPU6050 init failed, will use placeholder data");
+        ESP_LOGW(TAG, "MPU6050 init failed, will use placeholder data");
     }
 
     // GPS NEO-6M
     err = gps_neo6m_init(GPS_UART_NUM, GPS_UART_TX, GPS_UART_RX, GPS_BAUD_RATE);
     if (err == ESP_OK)
     {
-        ESP_LOGI(TAG, "✓ GPS initialized (TX:%d, RX:%d)", GPS_UART_TX, GPS_UART_RX);
+        ESP_LOGI(TAG, "GPS initialized (TX:%d, RX:%d)", GPS_UART_TX, GPS_UART_RX);
     }
     else
     {
-        ESP_LOGW(TAG, "⚠ GPS init failed, will use placeholder data");
+        ESP_LOGW(TAG, "GPS init failed, will use placeholder data");
     }
 
     // Step 6: Start Sensor MQTT Task
@@ -284,7 +279,7 @@ void app_main(void)
         1                 // Core ID (1 = APP_CPU)
     );
 
-    ESP_LOGI(TAG, "✓ System initialization complete");
+    ESP_LOGI(TAG, "System initialization complete");
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, "Publishing sensor data to topic: %s", MQTT_TOPIC);
     ESP_LOGI(TAG, "========================================");
